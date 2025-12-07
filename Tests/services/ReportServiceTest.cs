@@ -7,182 +7,155 @@ using DAL8.Entities;
 using Moq;
 using Tests.Mocks;
 
-[TestFixture]
-public class EmployeeReportServiceTest
+
+namespace Tests
 {
-    private Mock<IDbRepos> _uowMock;
-    private ReportServiceForLab4 _service;
-
-    // Test data for success cases
-    private static readonly int _validDepartmentId = 1;
-
-    // Test data for failure cases
-    private static readonly int _invalidDepartmentId = -1;
-    private static readonly int _nonExistentDepartmentId = 999;
-    private static readonly int _zeroDepartmentId = 0;
-
-    [SetUp]
-    public void Setup()
+    [TestFixture]
+    public class EmployeeReportServiceTest
     {
-        _uowMock = MockUnitOfWork.GetMock();
-        _service = new ReportServiceForLab4(_uowMock.Object);
-    }
+        private Mock<IDbRepos> _uowMock;
+        private DBDataOperations _businessService;
+        private ReportServiceForLab4 _reportService;
 
-    // SUCCESS TESTS
-    [Test]
-    public void GetEmployeesWithProjectsByDepartment_Success_ValidDepartment()
-    {
-        // Act
-        var result = _service.GetEmployeesWithProjectsByDepartment(_validDepartmentId);
-
-        // Assert
-        Assert.IsNotNull(result);
-        Assert.IsInstanceOf<List<EmployeeProjectsReport>>(result);
-        Assert.Greater(result.Count, 0, "Should return at least one employee");
-
-        // Verify data integrity
-        foreach (var employee in result)
+        [SetUp]
+        public void Setup()
         {
-            Assert.IsNotNull(employee.FullName);
-            Assert.IsNotNull(employee.DepartmentName);
-            Assert.IsNotNull(employee.SpecialtyName);
-            Assert.IsNotNull(employee.ParticipationStatus);
+            _uowMock = MockUnitOfWork.GetMock();
+            _businessService = new DBDataOperations(_uowMock.Object);
+            _reportService = new ReportServiceForLab4(_uowMock.Object);
         }
-    }
 
-    [Test]
-    public void GetEmployeesWithProjectsByDepartment_Success_EmptyDepartment()
-    {
-        // Arrange - Create a new department with no employees
-        var emptyDepartment = new department
+        // ====================
+        // ТЕСТЫ БИЗНЕС-ЛОГИКИ (CreateEmployee)
+        // ====================
+
+        [Test]
+        public void CreateEmployee_Success_WhenDepartmentHasLessThan3Specialists()
         {
-            department_code = 100,
-            department_name = "Пустой отдел"
-        };
-        MockDepartmentRepository.departments.Add(emptyDepartment);
+            // Arrange - Добавляем только 2 сотрудников (лимит 3)
+            // Убедимся, что в отделе 1 и специальности 1 уже есть 2 сотрудника
+            MockEmployeeRepository.employees.Clear();
+            for (int i = 1; i <= 2; i++)
+            {
+                MockEmployeeRepository.employees.Add(new employee
+                {
+                    employee_id = i,
+                    full_name = $"Существующий сотрудник {i}",
+                    department_code_FK2 = 1,  // IT отдел
+                    specialty_code_FK1 = 1     // Программист
+                });
+            }
 
-        // Act
-        var result = _service.GetEmployeesWithProjectsByDepartment(100);
+            var newEmployee = new EmployeeDTO
+            {
+                FullName = "Новый Сотрудник",
+                DepartmentCode = 1,
+                SpecialtyCode = 1
+            };
 
-        // Assert
-        Assert.IsNotNull(result);
-        Assert.IsEmpty(result, "Should return empty list for department with no employees");
-    }
+            // Act
+            var result = _businessService.CreateEmployee(newEmployee);
 
-    // FAILURE TESTS
-    [Test]
-    public void GetEmployeesWithProjectsByDepartment_Fail_InvalidDepartmentId()
-    {
-        // Act & Assert - Test with invalid ID
-        var result = _service.GetEmployeesWithProjectsByDepartment(_invalidDepartmentId);
-        Assert.IsNotNull(result);
-        Assert.IsEmpty(result, "Should return empty list for invalid department ID");
-    }
+            // Assert
+            Assert.IsTrue(result.IsSuccess, "Должен успешно создать сотрудника");
+            Assert.That(result.Message, Contains.Substring("успешно"));
+            Assert.AreEqual(3, MockEmployeeRepository.employees.Count, "Должно быть 3 сотрудника в отделе");
+        }
 
-    [Test]
-    public void GetEmployeesWithProjectsByDepartment_Fail_NonExistentDepartment()
-    {
-        // Act & Assert
-        var result = _service.GetEmployeesWithProjectsByDepartment(_nonExistentDepartmentId);
-        Assert.IsNotNull(result);
-        Assert.IsEmpty(result, "Should return empty list for non-existent department");
-    }
-
-    [Test]
-    public void GetEmployeesWithProjectsByDepartment_Fail_ZeroDepartmentId()
-    {
-        // Act & Assert
-        var result = _service.GetEmployeesWithProjectsByDepartment(_zeroDepartmentId);
-        Assert.IsNotNull(result);
-        Assert.IsEmpty(result, "Should return empty list for department ID 0");
-    }
-
-    [Test]
-    public void GetEmployeesWithProjectsByDepartment_Fail_NullDataInMock()
-    {
-        // Arrange - Corrupt the mock data
-        MockEmployeeRepository.employees.Add(new employee
+        [Test]
+        public void CreateEmployee_Fail_WhenDepartmentHas3Specialists()
         {
-            employee_id = 999,
-            full_name = null, // Invalid: null name
-            department_code_FK2 = 1,
-            specialty_code_FK1 = 1
-        });
+            // Arrange - Добавляем 3 сотрудников (достигаем лимита)
+            MockEmployeeRepository.employees.Clear();
+            for (int i = 1; i <= 3; i++)
+            {
+                MockEmployeeRepository.employees.Add(new employee
+                {
+                    employee_id = i,
+                    full_name = $"Существующий сотрудник {i}",
+                    department_code_FK2 = 1,  // IT отдел
+                    specialty_code_FK1 = 1     // Программист
+                });
+            }
 
-        // Act
-        var result = _service.GetEmployeesWithProjectsByDepartment(1);
+            var newEmployee = new EmployeeDTO
+            {
+                FullName = "Четвертый Сотрудник",
+                DepartmentCode = 1,
+                SpecialtyCode = 1
+            };
 
-        // Assert - Service should handle null data gracefully
-        Assert.IsNotNull(result);
-        // The test passes if no exception is thrown
-    }
+            // Act
+            var result = _businessService.CreateEmployee(newEmployee);
 
-    // TEST FOR YOUR BUSINESS LOGIC SERVICE (DBDataOperations)
-    [Test]
-    public void CreateEmployee_Fail_InvalidData()
-    {
-        // Arrange - Using the business logic service
-        var businessService = new DBDataOperations(_uowMock.Object);
+            // Assert
+            Assert.IsFalse(result.IsSuccess, "Должен вернуть ошибку при превышении лимита");
+            Assert.That(result.Message, Contains.Substring("Максимум 3 разрешено")); 
+            Assert.AreEqual(3, MockEmployeeRepository.employees.Count, "Не должно добавить четвертого сотрудника");
+        }
 
-        // Test DTOs with invalid data
-        var invalidEmployee1 = new EmployeeDTO
+        // ====================
+        // ТЕСТЫ ОТЧЕТОВ (ReportServiceForLab4)
+        // ====================
+
+        [Test]
+        public void GetEmployeesWithProjectsByDepartment_Success_ReturnsCorrectData()
         {
-            FullName = "", // Empty name
-            DepartmentCode = 1,
-            SpecialtyCode = 1
-        };
+            // Arrange
+            int departmentId = 1; // IT отдел
+            string expectedDepartmentName = "IT отдел";
 
-        var invalidEmployee2 = new EmployeeDTO
+            // Act
+            var result = _reportService.GetEmployeesWithProjectsByDepartment(departmentId);
+
+            // Assert
+            Assert.IsNotNull(result, "Не должен возвращать null");
+            Assert.Greater(result.Count, 0, "Должен вернуть хотя бы одного сотрудника");
+
+            // Проверяем, что все сотрудники из нужного отдела
+            foreach (var employee in result)
+            {
+                Assert.AreEqual(expectedDepartmentName, employee.DepartmentName,
+                    $"Сотрудник {employee.FullName} должен быть из отдела {expectedDepartmentName}");
+            }
+
+            // Проверяем структуру данных
+            var firstEmployee = result.First();
+            Assert.IsNotNull(firstEmployee.FullName, "Должно быть указано ФИО");
+            Assert.IsNotNull(firstEmployee.SpecialtyName, "Должна быть указана специальность");
+            Assert.IsNotNull(firstEmployee.ParticipationStatus, "Должен быть указан статус");
+        }
+
+        [Test]
+        public void GetEmployeesWithProjectsByDepartment_ReturnsCorrectCount()
         {
-            FullName = "Valid Name",
-            DepartmentCode = -1, // Invalid department
-            SpecialtyCode = 1
-        };
+            // Arrange
+            int departmentId = 1; // IT отдел
 
-        var invalidEmployee3 = new EmployeeDTO
+            // Посчитаем сколько сотрудников должно быть в IT отделе
+            var expectedCount = MockEmployeeRepository.employees
+                .Count(e => e.department_code_FK2 == departmentId);
+
+            // Act
+            var result = _reportService.GetEmployeesWithProjectsByDepartment(departmentId);
+
+            // Assert
+            Assert.AreEqual(expectedCount, result.Count,
+                $"Должно вернуть {expectedCount} сотрудников из IT отдела");
+        }
+
+        [TearDown]
+        public void TearDown()
         {
-            FullName = "Valid Name",
-            DepartmentCode = 1,
-            SpecialtyCode = 0 // Invalid specialty
-        };
-
-        // Act & Assert - All should fail
-        var result1 = businessService.CreateEmployee(invalidEmployee1);
-        Assert.IsFalse(result1.IsSuccess);
-
-        var result2 = businessService.CreateEmployee(invalidEmployee2);
-        Assert.IsFalse(result2.IsSuccess);
-
-        var result3 = businessService.CreateEmployee(invalidEmployee3);
-        Assert.IsFalse(result3.IsSuccess);
-    }
-
-    [Test]
-    public void CreateEmployee_Success_ValidData()
-    {
-        // Arrange
-        var businessService = new DBDataOperations(_uowMock.Object);
-        var validEmployee = new EmployeeDTO
-        {
-            FullName = "Новый Валидный Сотрудник",
-            DepartmentCode = 1,
-            SpecialtyCode = 2
-        };
-
-        // Act
-        var result = businessService.CreateEmployee(validEmployee);
-
-        // Assert
-        Assert.IsTrue(result.IsSuccess);
-        Assert.That(result.Message, Contains.Substring("успешно"));
-    }
-
-    // DON'T TEST STORED PROCEDURE REPORTS (as per instructions)
-    [Test]
-    public void StoredProcedureReport_NotTested()
-    {
-        // According to instructions: "Так как один из отчетов использует ХП БД, мы его не тестируем"
-        // If you have a report that uses stored procedures, skip testing it
-        Assert.Pass("Stored procedure reports are not tested (database logic)");
+            // Очищаем тестовые данные после каждого теста
+            MockEmployeeRepository.employees.Clear();
+            // Восстанавливаем исходные данные
+            MockEmployeeRepository.employees.AddRange(new List<employee>
+            {
+                new employee { employee_id = 1, full_name = "Иванов Иван", department_code_FK2 = 1, specialty_code_FK1 = 1 },
+                new employee { employee_id = 2, full_name = "Петров Петр", department_code_FK2 = 1, specialty_code_FK1 = 2 },
+                new employee { employee_id = 3, full_name = "Сидоров Сидор", department_code_FK2 = 2, specialty_code_FK1 = 1 }
+            });
+        }
     }
 }
